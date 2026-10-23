@@ -23,6 +23,9 @@ export interface EventSession {
   club: string;
   status: EventStatus;
   active_participant_id: number | null;
+  audience_vote_token: string | null;
+  audience_vote_participant_id: number | null;
+  audience_vote_generated_at: string | null;
   voting_opened_at: string | null;
   voting_deadline_at: string | null;
   voting_duration_sec: number;
@@ -67,6 +70,8 @@ export interface PublicState {
   club: string;
   status: EventStatus;
   activeParticipant: Pick<Participant, "id" | "number" | "name" | "performance_title" | "photo_url"> | null;
+  audienceVoteToken: string | null;
+  audienceVoteUrl: string | null;
   votingDeadlineAt: string | null;
   votingOpenedAt: string | null;
   votingDurationSec: number;

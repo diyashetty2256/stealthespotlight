@@ -800,6 +800,20 @@ export default function AdminDashboard() {
                 </>
               )}
 
+              {state.audienceVoteUrl && (
+                <div className="mt-6 flex flex-col items-center gap-3 rounded-sm border border-antique-gold/35 bg-parchment/[0.03] p-4">
+                  <p className="label-caps text-antique-gold tracking-[0.3em]">Audience QR</p>
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(state.audienceVoteUrl)}`}
+                    alt="Audience vote QR code"
+                    className="w-28 h-28 bg-white p-2 rounded-sm"
+                  />
+                  <a href={state.audienceVoteUrl} target="_blank" rel="noreferrer" className="text-xs text-parchment/70 hover:text-antique-gold transition-colors break-all text-center">
+                    {state.audienceVoteUrl}
+                  </a>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-3 justify-center mt-7">
                 {state.status !== "voting_open" ? (
                   <button

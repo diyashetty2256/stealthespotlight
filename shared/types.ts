@@ -20,6 +20,8 @@ export interface PublicState {
     performance_title: string | null;
     photo_url: string | null;
   } | null;
+  audienceVoteToken: string | null;
+  audienceVoteUrl: string | null;
   votingDeadlineAt: string | null;
   votingOpenedAt: string | null;
   votingDurationSec: number;

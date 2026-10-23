@@ -5,7 +5,7 @@ import connectPgSimple from "connect-pg-simple";
 import cors from "cors";
 import { Server as SocketServer, type Socket } from "socket.io";
 import { config } from "./config/env.js";
-import { pool } from "./config/database.js";
+import { isMemoryDatabaseActive, pool } from "./config/database.js";
 import { runMigrations } from "./models/migrate.js";
 import { api } from "./routes/api.js";
 import { broadcastState, onStateChange, resumeTimers, getPublicState, getAdminState } from "./services/stateService.js";
@@ -18,22 +18,39 @@ async function main() {
 
   const app = express();
   const server = http.createServer(app);
+  const allowedOrigins = new Set(config.clientUrls.map((origin) => origin.replace(/\/$/, "")));
+
+  const isAllowedOrigin = (origin: string | undefined): boolean => {
+    if (!origin) return true;
+    const normalizedOrigin = origin.replace(/\/$/, "");
+    if (allowedOrigins.has(normalizedOrigin)) return true;
+    return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/.test(normalizedOrigin);
+  };
 
   app.set("trust proxy", 1);
   app.use(
     cors({
-      origin: config.clientUrl,
+      origin: (origin, callback) => {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error("Not allowed by CORS"));
+      },
       credentials: true,
     })
   );
   app.use(express.json({ limit: "1mb" }));
 
   const sessionMiddleware = session({
-    store: new PgStore({
-      pool,
-      tableName: "session",
-      createTableIfMissing: true,
-    }),
+    store: isMemoryDatabaseActive
+      ? new session.MemoryStore()
+      : new PgStore({
+          pool,
+          tableName: "session",
+          createTableIfMissing: true,
+        }),
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -51,7 +68,17 @@ async function main() {
   app.use("/api", api);
 
   const io = new SocketServer(server, {
-    cors: { origin: config.clientUrl, credentials: true },
+    cors: {
+      origin: (origin, callback) => {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error("Not allowed by CORS"));
+      },
+      credentials: true,
+    },
   });
 
   // Share express-session with socket.io so we know who is connecting.

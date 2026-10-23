@@ -1,4 +1,6 @@
 import { pool, withTransaction } from "../config/database.js";
+import { config } from "../config/env.js";
+import { generateAudienceRoundToken } from "./audienceVote.js";
 import type {
   AdminState,
   EventSession,
@@ -66,11 +68,13 @@ export async function getParticipantById(id: number): Promise<Participant | null
 /** Judge roster with the number of scores each one has on record. */
 export async function getJudges(): Promise<JudgeAccount[]> {
   const result = await pool.query(
-    `SELECT u.id, u.username, u.display_name, u.role,
-            (SELECT COUNT(*)::int FROM scores s WHERE s.judge_id = u.id) AS score_count
-     FROM users u
-     WHERE u.role = 'judge'
-     ORDER BY u.id`
+    `SELECT users.id, users.username, users.display_name, users.role,
+            COUNT(scores.id)::int AS score_count
+     FROM users
+     LEFT JOIN scores ON scores.judge_id = users.id
+     WHERE users.role = 'judge'
+     GROUP BY users.id, users.username, users.display_name, users.role
+     ORDER BY users.id`
   );
   return result.rows as JudgeAccount[];
 }
@@ -89,7 +93,7 @@ export async function reconcileDeadline(): Promise<EventSession> {
 }
 
 export async function startVoting(durationSec?: number): Promise<EventSession> {
-  return withTransaction(async (client) => {
+  const newSession = await withTransaction(async (client) => {
     const sessionResult = await client.query("SELECT * FROM event_sessions WHERE id = 1 FOR UPDATE");
     const session = sessionResult.rows[0] as EventSession;
 
@@ -100,32 +104,39 @@ export async function startVoting(durationSec?: number): Promise<EventSession> {
       throw Object.assign(new Error("Select a performer before opening voting."), { status: 400 });
     }
 
-    const duration = durationSec ?? session.voting_duration_sec;
+    const duration = durationSec ?? session.voting_duration_sec ?? 30;
     const now = new Date();
     const deadline = new Date(now.getTime() + duration * 1000);
+    const token = generateAudienceRoundToken();
 
     const updated = await client.query(
       `UPDATE event_sessions
        SET status = 'voting_open',
-           voting_opened_at = $1,
-           voting_deadline_at = $2,
-           voting_duration_sec = $3,
+           audience_vote_token = $1,
+           audience_vote_participant_id = $2,
+           audience_vote_generated_at = $3,
+           voting_opened_at = $4,
+           voting_deadline_at = $5,
+           voting_duration_sec = $6,
            updated_at = now()
        WHERE id = 1
        RETURNING *`,
-      [now.toISOString(), deadline.toISOString(), duration]
+      [token, session.active_participant_id, now.toISOString(), now.toISOString(), deadline.toISOString(), duration]
     );
 
     await client.query(
       `INSERT INTO event_audit (actor_id, action, details)
        VALUES ($1, 'voting_opened', $2)`,
-      [null, JSON.stringify({ participantId: session.active_participant_id, duration, deadline: deadline.toISOString() })]
+      [null, JSON.stringify({ participantId: session.active_participant_id, duration, deadline: deadline.toISOString(), audienceVoteToken: token })]
     );
 
-    const newSession = updated.rows[0] as EventSession;
+    const updatedSession = updated.rows[0] as EventSession;
     scheduleAutoClose(deadline);
-    return newSession;
+    return updatedSession;
   });
+
+  await broadcastState();
+  return newSession;
 }
 
 export async function closeVoting(opts: {
@@ -139,7 +150,11 @@ export async function closeVoting(opts: {
 
     const updated = await client.query(
       `UPDATE event_sessions
-       SET status = 'voting_closed', updated_at = now()
+       SET status = 'voting_closed',
+           audience_vote_token = NULL,
+           audience_vote_participant_id = NULL,
+           audience_vote_generated_at = NULL,
+           updated_at = now()
        WHERE id = 1 AND status = 'voting_open'
        RETURNING *`
     );
@@ -217,7 +232,11 @@ export async function setActiveParticipant(
 
     const result = await client.query(
       `UPDATE event_sessions
-       SET active_participant_id = $1, status = $2, voting_opened_at = NULL,
+       SET active_participant_id = $1, status = $2,
+           audience_vote_token = NULL,
+           audience_vote_participant_id = NULL,
+           audience_vote_generated_at = NULL,
+           voting_opened_at = NULL,
            voting_deadline_at = NULL, updated_at = now()
        WHERE id = 1
        RETURNING *`,
@@ -237,12 +256,75 @@ export async function setActiveParticipant(
   return session;
 }
 
+type AudienceVoteRow = {
+  id: number;
+  participant_id: number;
+  score: number;
+  created_at: string | null;
+};
+
+export function buildParticipantLeaderboardEntry({
+  participant,
+  judgeRows,
+  audienceRows,
+  judgeNames,
+}: {
+  participant: Participant;
+  judgeRows: ScoreRow[];
+  audienceRows: AudienceVoteRow[];
+  judgeNames: Map<number, string>;
+}): LeaderboardEntry {
+  const rows = [
+    ...judgeRows.map((row) => ({
+      id: row.id,
+      judgeId: row.judge_id,
+      judgeName: judgeNames.get(row.judge_id) ?? `Judge #${row.judge_id}`,
+      score: row.score,
+      isMissing: row.is_missing,
+      isCorrected: row.is_corrected,
+    })),
+    ...audienceRows.map((row) => ({
+      id: row.id,
+      judgeId: -1,
+      judgeName: "Audience",
+      score: row.score,
+      isMissing: false,
+      isCorrected: false,
+    })),
+  ];
+
+  const valid = rows.filter((r) => !r.isMissing && r.score !== null);
+  const missing = rows.filter((r) => r.isMissing || r.score === null);
+  const totalScore = valid.reduce((sum, r) => sum + (r.score ?? 0), 0);
+  const average = valid.length > 0 ? totalScore / valid.length : null;
+
+  return {
+    rank: 0,
+    tied: false,
+    participant,
+    average: average === null ? null : Math.round(average * 100) / 100,
+    totalScore,
+    validScoreCount: valid.length,
+    hasAllScores: rows.length > 0 && missing.length === 0,
+    missingJudgeNames: missing.map((r) => r.judgeName),
+    scores: rows.map((r) => ({
+      id: r.id,
+      judgeId: r.judgeId,
+      judgeName: r.judgeName,
+      score: r.score,
+      isMissing: r.isMissing,
+      isCorrected: r.isCorrected,
+    })),
+  };
+}
+
 /** Tie policy: higher average first, then higher total score, then fewer missing scores, then participant number. */
 export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
-  const [participants, judges, scores] = await Promise.all([
+  const [participants, judges, scores, audienceVotes] = await Promise.all([
     getParticipants(),
     pool.query("SELECT id, display_name FROM users WHERE role = 'judge'"),
     pool.query("SELECT * FROM scores"),
+    pool.query("SELECT id, participant_id, score, created_at FROM audience_votes"),
   ]);
 
   const judgeNames = new Map<number, string>(
@@ -255,38 +337,27 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
     scoresByParticipant.set(row.participant_id, list);
   }
 
-  const entries: LeaderboardEntry[] = participants.map((participant) => {
-    const rows = scoresByParticipant.get(participant.id) ?? [];
-    const valid = rows.filter((r) => !r.is_missing && r.score !== null);
-    const missing = rows.filter((r) => r.is_missing || r.score === null);
-    const totalScore = valid.reduce((sum, r) => sum + (r.score ?? 0), 0);
-    const average = valid.length > 0 ? totalScore / valid.length : null;
+  const audienceByParticipant = new Map<number, AudienceVoteRow[]>();
+  for (const row of audienceVotes.rows as AudienceVoteRow[]) {
+    const list = audienceByParticipant.get(row.participant_id) ?? [];
+    list.push(row);
+    audienceByParticipant.set(row.participant_id, list);
+  }
 
-    return {
-      rank: 0,
-      tied: false,
+  const entries: LeaderboardEntry[] = participants.map((participant) =>
+    buildParticipantLeaderboardEntry({
       participant,
-      average: average === null ? null : Math.round(average * 100) / 100,
-      totalScore,
-      validScoreCount: valid.length,
-      hasAllScores: rows.length > 0 && missing.length === 0,
-      missingJudgeNames: missing.map((r) => judgeNames.get(r.judge_id) ?? `Judge #${r.judge_id}`),
-      scores: rows.map((r) => ({
-        id: r.id,
-        judgeId: r.judge_id,
-        judgeName: judgeNames.get(r.judge_id) ?? `Judge #${r.judge_id}`,
-        score: r.score,
-        isMissing: r.is_missing,
-        isCorrected: r.is_corrected,
-      })),
-    };
-  });
+      judgeRows: scoresByParticipant.get(participant.id) ?? [],
+      audienceRows: audienceByParticipant.get(participant.id) ?? [],
+      judgeNames,
+    })
+  );
 
   const sorted = entries.sort((a, b) => {
+    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
     const avgA = a.average ?? -1;
     const avgB = b.average ?? -1;
     if (avgB !== avgA) return avgB - avgA;
-    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
     if (a.missingJudgeNames.length !== b.missingJudgeNames.length)
       return a.missingJudgeNames.length - b.missingJudgeNames.length;
     return a.participant.number - b.participant.number;
@@ -311,6 +382,10 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
 }
 
 function toPublicState(session: EventSession, participant: Participant | null): PublicState {
+  const audienceVoteUrl = session.audience_vote_token
+    ? `${config.clientUrl}/vote?token=${encodeURIComponent(session.audience_vote_token)}`
+    : null;
+
   return {
     title: session.title,
     club: session.club,
@@ -324,6 +399,8 @@ function toPublicState(session: EventSession, participant: Participant | null): 
           photo_url: participant.photo_url,
         }
       : null,
+    audienceVoteToken: session.audience_vote_token,
+    audienceVoteUrl,
     votingDeadlineAt: session.voting_deadline_at,
     votingOpenedAt: session.voting_opened_at,
     votingDurationSec: session.voting_duration_sec,
@@ -416,7 +493,11 @@ export async function resetAllScores(actorId?: number): Promise<void> {
     await client.query("DELETE FROM scores");
     await client.query(
       `UPDATE event_sessions
-       SET status = 'ready', active_participant_id = NULL, voting_opened_at = NULL,
+       SET status = 'ready', active_participant_id = NULL,
+           audience_vote_token = NULL,
+           audience_vote_participant_id = NULL,
+           audience_vote_generated_at = NULL,
+           voting_opened_at = NULL,
            voting_deadline_at = NULL, results_published = FALSE, results_published_at = NULL,
            updated_at = now()
        WHERE id = 1`

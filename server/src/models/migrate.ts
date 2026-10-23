@@ -1,4 +1,14 @@
 import { pool } from "../config/database.js";
+import { ensureDefaultUsers } from "./bootstrap.js";
+
+const SAMPLE_PARTICIPANTS = [
+  { number: 1, name: "Amara Osei", performance_title: "The Midnight Library of Unwritten Stories" },
+  { number: 2, name: "Jonah Whitfield", performance_title: "Ode to a Broken Typewriter" },
+  { number: 3, name: "Priya Nair", performance_title: "Letters I Never Sent" },
+  { number: 4, name: "Diego Salazar", performance_title: "The Cartographer's Confession" },
+  { number: 5, name: "Mei-Lin Zhao", performance_title: "Paper Cranes at Dawn" },
+  { number: 6, name: "Felix Andersen", performance_title: "A Eulogy for the Last Bookshop" },
+];
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -28,15 +38,26 @@ CREATE TABLE IF NOT EXISTS event_sessions (
   status                TEXT NOT NULL DEFAULT 'ready'
                         CHECK (status IN ('ready','voting_open','voting_closed','completed')),
   active_participant_id INTEGER REFERENCES participants(id) ON DELETE SET NULL,
+  audience_vote_token   TEXT,
+  audience_vote_participant_id INTEGER REFERENCES participants(id) ON DELETE SET NULL,
+  audience_vote_generated_at TIMESTAMPTZ,
   voting_opened_at      TIMESTAMPTZ,
   voting_deadline_at    TIMESTAMPTZ,
-  voting_duration_sec   INTEGER NOT NULL DEFAULT 10,
+  voting_duration_sec   INTEGER NOT NULL DEFAULT 30,
   results_published     BOOLEAN NOT NULL DEFAULT FALSE,
   results_published_at  TIMESTAMPTZ,
   scoring_min           INTEGER NOT NULL DEFAULT 0,
   scoring_max           INTEGER NOT NULL DEFAULT 10,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS audience_votes (
+  id                 SERIAL PRIMARY KEY,
+  token              TEXT NOT NULL UNIQUE,
+  participant_id     INTEGER NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
+  score              INTEGER NOT NULL,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS scores (
@@ -78,9 +99,30 @@ CREATE INDEX IF NOT EXISTS idx_scores_participant ON scores(participant_id);
 export async function runMigrations(): Promise<void> {
   await pool.query(SCHEMA);
 
+  await pool.query(`
+    ALTER TABLE event_sessions
+      ADD COLUMN IF NOT EXISTS audience_vote_token TEXT,
+      ADD COLUMN IF NOT EXISTS audience_vote_participant_id INTEGER REFERENCES participants(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS audience_vote_generated_at TIMESTAMPTZ;
+  `);
+
   const existing = await pool.query("SELECT id FROM event_sessions LIMIT 1");
   if (existing.rowCount === 0) {
     await pool.query("INSERT INTO event_sessions (id) VALUES (1)");
+  }
+
+  await ensureDefaultUsers();
+
+  const participantCount = await pool.query("SELECT COUNT(*)::int AS count FROM participants");
+  if (participantCount.rows[0].count === 0) {
+    for (let i = 0; i < SAMPLE_PARTICIPANTS.length; i++) {
+      const p = SAMPLE_PARTICIPANTS[i];
+      await pool.query(
+        `INSERT INTO participants (number, name, performance_title, display_order)
+         VALUES ($1, $2, $3, $4)`,
+        [p.number, p.name, p.performance_title, i]
+      );
+    }
   }
 }
 

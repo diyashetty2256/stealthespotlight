@@ -19,6 +19,7 @@ import {
   unpublishResults,
 } from "../services/stateService.js";
 import { correctScore, getMySubmission, submitScore } from "../services/scoreService.js";
+import { validateAudienceScore } from "../services/audienceVote.js";
 import type { Participant } from "../config/types.js";
 
 export const api = Router();
@@ -115,6 +116,50 @@ api.get("/results", async (_req, res) => {
     const results = await getPublishedResults();
     if (!results) return res.status(404).json({ error: "Results have not been published yet." });
     res.json(results);
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+api.post("/audience/vote", async (req, res) => {
+  try {
+    const { token, score } = req.body ?? {};
+    if (typeof token !== "string" || !token.trim()) {
+      return res.status(422).json({ error: "A valid audience ballot token is required." });
+    }
+
+    const session = await getSession();
+    if (session.status !== "voting_open") {
+      return res.status(409).json({ error: "Audience voting is not open right now." });
+    }
+    if (!session.audience_vote_token || session.audience_vote_token !== token.trim()) {
+      return res.status(409).json({ error: "This audience ballot is no longer active." });
+    }
+
+    const numericScore = Number(score);
+    if (!validateAudienceScore(numericScore, session.scoring_min, session.scoring_max)) {
+      return res.status(422).json({ error: `Score must be an integer between ${session.scoring_min} and ${session.scoring_max}.` });
+    }
+
+    const participantId = session.active_participant_id;
+    if (!participantId) {
+      return res.status(400).json({ error: "There is no active performer for this round." });
+    }
+
+    const existing = await pool.query(
+      "SELECT id FROM audience_votes WHERE token = $1",
+      [token.trim()]
+    );
+    if (existing.rowCount && existing.rowCount > 0) {
+      return res.status(409).json({ error: "This round has already received an audience vote." });
+    }
+
+    await pool.query(
+      "INSERT INTO audience_votes (token, participant_id, score) VALUES ($1, $2, $3)",
+      [token.trim(), participantId, numericScore]
+    );
+
+    res.json({ ok: true, participantId, score: numericScore });
   } catch (error) {
     handleError(res, error);
   }

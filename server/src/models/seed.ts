@@ -1,6 +1,6 @@
-import bcrypt from "bcryptjs";
 import { pool } from "../config/database.js";
 import { runMigrations } from "./migrate.js";
+import { ensureDefaultUsers } from "./bootstrap.js";
 
 export const SAMPLE_PARTICIPANTS = [
   { number: 1, name: "Amara Osei", performance_title: "The Midnight Library of Unwritten Stories" },
@@ -13,20 +13,10 @@ export const SAMPLE_PARTICIPANTS = [
 
 async function main() {
   await runMigrations();
+  await ensureDefaultUsers();
 
   const adminPass = process.env.SEED_ADMIN_PASSWORD ?? "admin-spotlight-2026";
   const judgePass = process.env.SEED_JUDGE_PASSWORD ?? "judge-spotlight-2026";
-
-  const adminHash = await bcrypt.hash(adminPass, 12);
-  const judgeHash = await bcrypt.hash(judgePass, 12);
-
-  await pool.query(
-    `INSERT INTO users (username, password_hash, display_name, role)
-     VALUES ('admin', $1, 'Spotlight Admin', 'admin'),
-            ('judge', $2, 'Head Judge', 'judge')
-     ON CONFLICT (username) DO NOTHING`,
-    [adminHash, judgeHash]
-  );
 
   const existing = await pool.query("SELECT COUNT(*)::int AS count FROM participants");
   if (existing.rows[0].count === 0) {

@@ -6,6 +6,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import JudgePage from "./pages/JudgePage";
 import AudiencePage from "./pages/AudiencePage";
 import ResultsPage from "./pages/ResultsPage";
+import AudienceVotePage from "./pages/AudienceVotePage";
 import { api, extractError } from "./utils/api";
 import type { User } from "./types";
 
@@ -45,6 +46,7 @@ export default function App() {
         element={user?.role === "judge" ? <JudgePage /> : <JudgeLogin onLogin={setUser} />}
       />
       <Route path="/audience" element={<AudiencePage />} />
+      <Route path="/vote" element={<AudienceVotePage />} />
       <Route path="/results" element={<ResultsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -36,6 +36,7 @@ export default function AudiencePage() {
   }, [state]);
 
   const countdownDisplay = state?.status === "voting_open" ? String(Math.max(0, remaining)) : null;
+  const qrImageUrl = state?.audienceVoteUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(state.audienceVoteUrl)}` : null;
 
   return (
     <CurtainFrame>
@@ -120,6 +121,13 @@ export default function AudiencePage() {
           </p>
           {!connected && <p className="label-caps text-muted-rose/80 mt-2">Connection lost — reconnecting…</p>}
         </footer>
+
+        {state?.status === "voting_open" && qrImageUrl && (
+          <div className="absolute bottom-24 right-8 z-20 bg-dark-plum/80 border border-antique-gold/35 p-3 shadow-[0_0_28px_rgba(198,161,91,0.18)] backdrop-blur-sm">
+            <img src={qrImageUrl} alt="Audience vote QR code" className="w-28 h-28 bg-white p-2 rounded-sm" />
+            <p className="label-caps text-antique-gold mt-2 text-center tracking-[0.24em] text-[10px]">Scan to vote</p>
+          </div>
+        )}
 
         {/* Participant-switch transition flash */}
         {transitioning && (
