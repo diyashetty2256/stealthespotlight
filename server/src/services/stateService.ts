@@ -139,6 +139,22 @@ export async function startVoting(durationSec?: number): Promise<EventSession> {
   return newSession;
 }
 
+/** Judges who did not score before voting closed are recorded as "missing" (works on Postgres and pg-mem). */
+async function markMissingJudgeScores(client: { query: (text: string, params?: unknown[]) => Promise<{ rows: any[] }> }, participantId: number): Promise<void> {
+  const judges = await client.query("SELECT id FROM users WHERE role = 'judge'");
+  const scored = await client.query("SELECT judge_id FROM scores WHERE participant_id = $1", [participantId]);
+  const done = new Set(scored.rows.map((r) => r.judge_id as number));
+  for (const judge of judges.rows as { id: number }[]) {
+    if (done.has(judge.id)) continue;
+    await client.query(
+      `INSERT INTO scores (participant_id, judge_id, score, is_missing, submitted_at)
+       VALUES ($1, $2, NULL, TRUE, now())
+       ON CONFLICT (participant_id, judge_id) DO NOTHING`,
+      [participantId, judge.id]
+    );
+  }
+}
+
 export async function closeVoting(opts: {
   reason: "manual" | "deadline" | "participant_switch";
   actorId?: number;
@@ -161,17 +177,7 @@ export async function closeVoting(opts: {
     const newSession = updated.rows[0] as EventSession;
 
     if (newSession.active_participant_id) {
-      await client.query(
-        `INSERT INTO scores (participant_id, judge_id, score, is_missing, submitted_at)
-         SELECT $1, u.id, NULL, TRUE, now()
-         FROM users u
-         WHERE u.role = 'judge'
-           AND NOT EXISTS (
-             SELECT 1 FROM scores s WHERE s.participant_id = $1 AND s.judge_id = u.id
-           )
-         ON CONFLICT (participant_id, judge_id) DO NOTHING`,
-        [newSession.active_participant_id]
-      );
+      await markMissingJudgeScores(client, newSession.active_participant_id);
     }
 
     await client.query(
@@ -210,14 +216,7 @@ export async function setActiveParticipant(
       );
       const closed = updated.rows[0] as EventSession;
       if (closed.active_participant_id) {
-        await client.query(
-          `INSERT INTO scores (participant_id, judge_id, score, is_missing, submitted_at)
-           SELECT $1, u.id, NULL, TRUE, now()
-           FROM users u WHERE u.role = 'judge'
-             AND NOT EXISTS (SELECT 1 FROM scores s WHERE s.participant_id = $1 AND s.judge_id = u.id)
-           ON CONFLICT (participant_id, judge_id) DO NOTHING`,
-          [closed.active_participant_id]
-        );
+        await markMissingJudgeScores(client, closed.active_participant_id);
       }
       cancelAutoClose();
     }
@@ -318,6 +317,20 @@ export function buildParticipantLeaderboardEntry({
   };
 }
 
+/**
+ * Ranking order: higher average first, then higher total score, then fewer missing judge scores,
+ * then participant number. Average comes first so a bigger crowd can never beat a better score.
+ */
+export function compareLeaderboardEntries(a: LeaderboardEntry, b: LeaderboardEntry): number {
+  const avgA = a.average ?? -1;
+  const avgB = b.average ?? -1;
+  if (avgB !== avgA) return avgB - avgA;
+  if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+  if (a.missingJudgeNames.length !== b.missingJudgeNames.length)
+    return a.missingJudgeNames.length - b.missingJudgeNames.length;
+  return a.participant.number - b.participant.number;
+}
+
 /** Tie policy: higher average first, then higher total score, then fewer missing scores, then participant number. */
 export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
   const [participants, judges, scores, audienceVotes] = await Promise.all([
@@ -353,15 +366,7 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
     })
   );
 
-  const sorted = entries.sort((a, b) => {
-    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-    const avgA = a.average ?? -1;
-    const avgB = b.average ?? -1;
-    if (avgB !== avgA) return avgB - avgA;
-    if (a.missingJudgeNames.length !== b.missingJudgeNames.length)
-      return a.missingJudgeNames.length - b.missingJudgeNames.length;
-    return a.participant.number - b.participant.number;
-  });
+  const sorted = entries.sort(compareLeaderboardEntries);
 
   let rank = 0;
   let prevKey = "";

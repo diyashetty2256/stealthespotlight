@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { newDb } from "pg-mem";
 
-import { buildParticipantLeaderboardEntry } from "./stateService.js";
+import { buildParticipantLeaderboardEntry, compareLeaderboardEntries } from "./stateService.js";
 
 test("judge roster query works with pg-mem", async () => {
   const db = newDb();
@@ -76,4 +76,30 @@ test("leaderboard combines judge and audience scores for the winner", () => {
   assert.equal(entry.validScoreCount, 3);
   assert.equal(entry.average, 8.67);
   assert.ok(entry.scores.some((score) => score.judgeName === "Audience"));
+});
+
+test("a higher average beats a bigger crowd (ranking is average-first)", () => {
+  const mk = (number: number, average: number | null, totalScore: number, missing = 0) =>
+    ({
+      rank: 0,
+      tied: false,
+      participant: { id: number, number, name: `P${number}`, performance_title: "", photo_url: null, display_order: number },
+      average,
+      totalScore,
+      validScoreCount: 0,
+      hasAllScores: true,
+      missingJudgeNames: Array.from({ length: missing }, () => "J"),
+      scores: [],
+    }) as unknown as Parameters<typeof compareLeaderboardEntries>[0];
+
+  const smallCrowdHighAvg = mk(2, 9.75, 78);
+  const bigCrowdLowAvg = mk(3, 7.07, 304);
+  const unscored = mk(5, null, 0);
+
+  const order = [bigCrowdLowAvg, unscored, smallCrowdHighAvg].sort(compareLeaderboardEntries).map((e) => e.participant.number);
+  assert.deepEqual(order, [2, 3, 5]);
+
+  // equal averages fall back to total score, then participant number
+  assert.ok(compareLeaderboardEntries(mk(1, 8, 80), mk(2, 8, 40)) < 0);
+  assert.ok(compareLeaderboardEntries(mk(1, 8, 40), mk(2, 8, 40)) < 0);
 });

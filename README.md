@@ -162,3 +162,11 @@ Run `npm run dev`, then open these in separate windows:
 The server serves the built client from the same origin, so cookies and
 Socket.IO work with no extra configuration. Note: Render's free Postgres
 expires after 30 days, so use a paid plan for anything long-lived.
+
+## How scoring works
+
+- Judges and audience members each submit a whole-number score; audience members vote by scanning the QR code
+  on the audience screen (one vote per phone per round).
+- Every valid score for a performer (judges and audience together) is averaged, and the **highest average wins**.
+  Ties are broken by total score, then fewer missing judge scores, then participant number.
+- The voting window is 30 seconds by default and closes automatically when the countdown ends.

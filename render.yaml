@@ -21,8 +21,6 @@ services:
         generateValue: true
       - key: SEED_JUDGE_PASSWORD
         generateValue: true
-      - key: VOTING_DURATION_SECONDS
-        value: 10
 
 databases:
   - name: stealthespotlight-db
