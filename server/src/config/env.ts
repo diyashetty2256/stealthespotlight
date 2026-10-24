@@ -38,6 +38,8 @@ export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   isProd: process.env.NODE_ENV === "production",
   clientUrl: parsedClientOrigins[0] ?? "http://localhost:5173",
+  // Public base URL used in audience QR links (never localhost in production).
+  publicUrl: (process.env.PUBLIC_URL ?? renderExternalUrl ?? parsedClientOrigins[0] ?? "http://localhost:5173").replace(/\/$/, ""),
   clientUrls: parsedClientOrigins.length ? parsedClientOrigins : defaultClientOrigins,
   sessionSecret: required("SESSION_SECRET", "dev-only-insecure-secret-change-me"),
   databaseUrl: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/authorcraft_sts",

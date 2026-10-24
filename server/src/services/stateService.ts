@@ -383,7 +383,7 @@ export async function computeLeaderboard(): Promise<LeaderboardEntry[]> {
 
 function toPublicState(session: EventSession, participant: Participant | null): PublicState {
   const audienceVoteUrl = session.audience_vote_token
-    ? `${config.clientUrl}/vote?token=${encodeURIComponent(session.audience_vote_token)}`
+    ? `${config.publicUrl}/vote?token=${encodeURIComponent(session.audience_vote_token)}`
     : null;
 
   return {

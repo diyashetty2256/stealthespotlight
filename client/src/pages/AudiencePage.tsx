@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useSocketState, useCountdown } from "../hooks/useRealtime";
 import { CurtainFrame, ScatterStars, Sparkle } from "../components/Decor";
 import { StatusPill } from "../components/StatusPill";
+import { getVoteUrl } from "../utils/voteUrl";
 import type { PublicState } from "../types";
 
 export default function AudiencePage() {
@@ -36,7 +37,8 @@ export default function AudiencePage() {
   }, [state]);
 
   const countdownDisplay = state?.status === "voting_open" ? String(Math.max(0, remaining)) : null;
-  const qrImageUrl = state?.audienceVoteUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(state.audienceVoteUrl)}` : null;
+  const voteUrl = getVoteUrl(state);
+  const qrImageUrl = voteUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(voteUrl)}` : null;
 
   return (
     <CurtainFrame>

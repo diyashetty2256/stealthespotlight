@@ -123,10 +123,13 @@ api.get("/results", async (_req, res) => {
 
 api.post("/audience/vote", async (req, res) => {
   try {
-    const { token, score } = req.body ?? {};
+    const { token, score, voterId } = req.body ?? {};
     if (typeof token !== "string" || !token.trim()) {
       return res.status(422).json({ error: "A valid audience ballot token is required." });
     }
+    // One vote per device per round: the QR token is shared by the whole room, so key votes by token + voter.
+    const voter = typeof voterId === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(voterId) ? voterId : `ip-${req.ip ?? "unknown"}`;
+    const voteKey = `${token.trim()}:${voter}`;
 
     const session = await getSession();
     if (session.status !== "voting_open") {
@@ -148,15 +151,15 @@ api.post("/audience/vote", async (req, res) => {
 
     const existing = await pool.query(
       "SELECT id FROM audience_votes WHERE token = $1",
-      [token.trim()]
+      [voteKey]
     );
     if (existing.rowCount && existing.rowCount > 0) {
-      return res.status(409).json({ error: "This round has already received an audience vote." });
+      return res.status(409).json({ error: "You have already voted in this round." });
     }
 
     await pool.query(
       "INSERT INTO audience_votes (token, participant_id, score) VALUES ($1, $2, $3)",
-      [token.trim(), participantId, numericScore]
+      [voteKey, participantId, numericScore]
     );
 
     res.json({ ok: true, participantId, score: numericScore });

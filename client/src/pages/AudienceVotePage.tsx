@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CurtainFrame } from "../components/Decor";
 import { api, extractError } from "../utils/api";
+import { getVoterId } from "../utils/voteUrl";
 import type { PublicState } from "../types";
 
 export default function AudienceVotePage() {
@@ -29,7 +30,7 @@ export default function AudienceVotePage() {
     setBusy(true);
     setMessage("");
     try {
-      await api.post("/audience/vote", { token, score });
+      await api.post("/audience/vote", { token, score, voterId: getVoterId() });
       setVoted(true);
       setMessage("Your vote was recorded.");
     } catch (error) {
