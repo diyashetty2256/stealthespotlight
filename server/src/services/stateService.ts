@@ -267,11 +267,14 @@ export function buildParticipantLeaderboardEntry({
   judgeRows,
   audienceRows,
   judgeNames,
+  judgeWeight = config.judgeWeight,
 }: {
   participant: Participant;
   judgeRows: ScoreRow[];
   audienceRows: AudienceVoteRow[];
   judgeNames: Map<number, string>;
+  /** Share of the final average that comes from judges (0-1); the audience gets the rest. */
+  judgeWeight?: number;
 }): LeaderboardEntry {
   const rows = [
     ...judgeRows.map((row) => ({
@@ -295,7 +298,15 @@ export function buildParticipantLeaderboardEntry({
   const valid = rows.filter((r) => !r.isMissing && r.score !== null);
   const missing = rows.filter((r) => r.isMissing || r.score === null);
   const totalScore = valid.reduce((sum, r) => sum + (r.score ?? 0), 0);
-  const average = valid.length > 0 ? totalScore / valid.length : null;
+  // Weighted average: judges' average and the audience's average are blended by judgeWeight,
+  // so a large crowd can never drown out the judges. If only one side has scored, that side counts fully.
+  const mean = (list: typeof valid) => (list.length ? list.reduce((sum, r) => sum + (r.score ?? 0), 0) / list.length : null);
+  const judgeAvg = mean(valid.filter((r) => r.judgeId !== -1));
+  const audienceAvg = mean(valid.filter((r) => r.judgeId === -1));
+  const average =
+    judgeAvg !== null && audienceAvg !== null
+      ? judgeWeight * judgeAvg + (1 - judgeWeight) * audienceAvg
+      : judgeAvg ?? audienceAvg;
 
   return {
     rank: 0,

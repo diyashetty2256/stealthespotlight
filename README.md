@@ -167,6 +167,7 @@ expires after 30 days, so use a paid plan for anything long-lived.
 
 - Judges and audience members each submit a whole-number score; audience members vote by scanning the QR code
   on the audience screen (one vote per phone per round).
-- Every valid score for a performer (judges and audience together) is averaged, and the **highest average wins**.
-  Ties are broken by total score, then fewer missing judge scores, then participant number.
+- A performer's final score is **70% judges' average + 30% audience average** (change with the `JUDGE_WEIGHT`
+  environment variable, e.g. `JUDGE_WEIGHT=0.5` for an even split). If only one side has scored, that side counts fully.
+  The **highest final score wins**. Ties are broken by total score, then fewer missing judge scores, then participant number.
 - The voting window is 30 seconds by default and closes automatically when the countdown ends.

@@ -49,6 +49,8 @@ export const config = {
     max: parseInt(process.env.SCORING_MAX ?? "10", 10),
     step: parseInt(process.env.SCORING_STEP ?? "1", 10),
   },
+  // Share of the final score that comes from judges (rest = audience). Default 70% judges / 30% audience.
+  judgeWeight: Math.min(1, Math.max(0, Number(process.env.JUDGE_WEIGHT ?? "0.7") || 0.7)),
   votingDurationSeconds: parseInt(process.env.VOTING_DURATION_SECONDS ?? "30", 10),
   allowScoreCorrections: process.env.ALLOW_SCORE_CORRECTIONS !== "false",
 };

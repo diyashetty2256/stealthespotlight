@@ -74,7 +74,8 @@ test("leaderboard combines judge and audience scores for the winner", () => {
 
   assert.equal(entry.totalScore, 26);
   assert.equal(entry.validScoreCount, 3);
-  assert.equal(entry.average, 8.67);
+  // judges avg 8 (9,7), audience avg 10 -> 70/30 blend = 8.6
+  assert.equal(entry.average, 8.6);
   assert.ok(entry.scores.some((score) => score.judgeName === "Audience"));
 });
 
@@ -102,4 +103,20 @@ test("a higher average beats a bigger crowd (ranking is average-first)", () => {
   // equal averages fall back to total score, then participant number
   assert.ok(compareLeaderboardEntries(mk(1, 8, 80), mk(2, 8, 40)) < 0);
   assert.ok(compareLeaderboardEntries(mk(1, 8, 40), mk(2, 8, 40)) < 0);
+});
+
+test("a large audience cannot outweigh the judges (70/30 blend)", () => {
+  const participant = { id: 1, number: 1, name: "Ada", performance_title: "Song", photo_url: null, display_order: 1 };
+  const judgeRows = [9, 9, 9].map((score, i) => ({ id: i + 1, participant_id: 1, judge_id: 20 + i, score, is_missing: false, is_corrected: false, submitted_at: null }));
+  const audienceRows = Array.from({ length: 100 }, (_, i) => ({ id: 100 + i, participant_id: 1, score: 1, created_at: null }));
+  const judgeNames = new Map([[20, "A"], [21, "B"], [22, "C"]]);
+
+  const blended = buildParticipantLeaderboardEntry({ participant, judgeRows, audienceRows, judgeNames, judgeWeight: 0.7 });
+  assert.equal(blended.average, 6.6); // 0.7*9 + 0.3*1, not the pooled 1.24
+
+  const judgesOnly = buildParticipantLeaderboardEntry({ participant, judgeRows, audienceRows: [], judgeNames, judgeWeight: 0.7 });
+  assert.equal(judgesOnly.average, 9);
+
+  const audienceOnly = buildParticipantLeaderboardEntry({ participant, judgeRows: [], audienceRows, judgeNames, judgeWeight: 0.7 });
+  assert.equal(audienceOnly.average, 1);
 });
