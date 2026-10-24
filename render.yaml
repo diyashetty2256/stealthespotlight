@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: stealthespotlight
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run start:server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        fromDatabase:
+          name: stealthespotlight-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SEED_ADMIN_PASSWORD
+        generateValue: true
+      - key: SEED_JUDGE_PASSWORD
+        generateValue: true
+      - key: VOTING_DURATION_SECONDS
+        value: 10
+
+databases:
+  - name: stealthespotlight-db
+    plan: free
+    databaseName: authorcraft_sts

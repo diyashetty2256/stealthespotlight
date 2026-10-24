@@ -148,3 +148,17 @@ Run `npm run dev`, then open these in separate windows:
 - All voting logic and deadlines are enforced on the server.
 - Audience display shows no private scoring data until results are published.
 - Change the seeded passwords before a real event: `POST /api/auth/change-password`.
+
+## Deploying (Render, free tier)
+
+1. Push this repo to GitHub (it already contains `render.yaml`).
+2. In Render choose **New > Blueprint**, select this repo and click **Apply**.
+   Render creates the web service and a Postgres database, and generates
+   `SESSION_SECRET`, `SEED_ADMIN_PASSWORD` and `SEED_JUDGE_PASSWORD` for you.
+3. When the deploy finishes, open the service URL. Read the generated admin
+   and judge passwords under the service's **Environment** tab and sign in at
+   `/admin/login` and `/judge`.
+
+The server serves the built client from the same origin, so cookies and
+Socket.IO work with no extra configuration. Note: Render's free Postgres
+expires after 30 days, so use a paid plan for anything long-lived.
