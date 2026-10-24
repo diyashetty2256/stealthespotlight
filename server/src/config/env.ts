@@ -23,7 +23,12 @@ const defaultClientOrigins = [
   "http://localhost:5176",
 ];
 
-const parsedClientOrigins = (process.env.CLIENT_URLS ?? process.env.CLIENT_URL ?? defaultClientOrigins.join(","))
+const renderExternalUrl = process.env.RENDER_EXTERNAL_URL?.replace(/\/$/, "");
+const defaultOrigins = [...defaultClientOrigins, ...(renderExternalUrl ? [renderExternalUrl] : [])];
+
+const parsedClientOrigins = (
+  process.env.CLIENT_URLS ?? process.env.CLIENT_URL ?? defaultOrigins.join(",")
+)
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);

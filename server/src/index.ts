@@ -1,4 +1,6 @@
 import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -42,6 +44,15 @@ async function main() {
     })
   );
   app.use(express.json({ limit: "1mb" }));
+
+  if (config.isProd) {
+    const clientDistPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../client/dist");
+    app.use(express.static(clientDistPath));
+    app.get(/^(?!\/api).*/, (req, res, next) => {
+      if (req.path.startsWith("/socket.io")) return next();
+      res.sendFile(path.join(clientDistPath, "index.html"));
+    });
+  }
 
   const sessionMiddleware = session({
     store: isMemoryDatabaseActive
